@@ -1,1 +1,1 @@
-python kards.py
+python ./code/kards.py
