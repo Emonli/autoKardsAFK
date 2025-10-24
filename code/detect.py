@@ -38,24 +38,31 @@ def detect_and_click_button(image_path, threshold=0.8):
         return True
     return False
 
-#找到所有k字符
-def find_all_k_positions(k_template_path, threshold=0.8, min_dist=20):
-    screenshot = take_screenshot()
-    img_gray = cv2.cvtColor(screenshot, cv2.COLOR_BGR2GRAY)
-    template = cv2.imread(k_template_path, cv2.IMREAD_GRAYSCALE)
-    res = cv2.matchTemplate(img_gray, template, cv2.TM_CCOEFF_NORMED)
-    loc = np.where(res >= threshold)
-    points = list(zip(*loc[::-1]))
-    filtered = []
-    for p in points:
-        if all(np.linalg.norm(np.array(p)-np.array(q)) > min_dist for q in filtered):
-            filtered.append(p)
-    return filtered
+def move_to_setting(setting_image_path):
+    button_pos = detect_button(setting_image_path)
+    if button_pos:
+        center_x, center_y = button_pos
+        # 移动鼠标至 setting 图标中央
+        pyautogui.moveTo(center_x, center_y)
+    else:
+        print("Setting button not found.")
+
+def drag_mouse(start_x, start_y, drag_x, drag_y, duration=0.5):
+    pyautogui.moveTo(start_x, start_y)
+    pyautogui.mouseDown()
+    pyautogui.move(drag_x, drag_y, duration=duration)  # 按住左键并拖动，duration 参数控制滑动速度
+    time.sleep(0.3)
+    pyautogui.mouseUp()
 
 def main():
     current_dir = os.path.dirname(os.path.abspath(__file__)) 
     continue_image_path = os.path.join(current_dir, 'continue.png')
     k_image_path = os.path.join(current_dir, 'k.png')
+    setting_image_path = os.path.join(current_dir, 'setting.png')
+
+    move_to_setting(setting_image_path)
+    pyautogui.move(0, 520)
+
 
 
 

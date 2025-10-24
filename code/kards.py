@@ -4,6 +4,8 @@ import numpy as np
 import time
 import os
 import random
+pyautogui.MINIMUM_DURATION = 0.01
+pyautogui.MINIMUM_SLEEP = 0.005
 
 # 截图函数，捕捉指定区域的图像
 def take_screenshot(region=None):
@@ -37,7 +39,7 @@ def detect_and_click_button(image_path, threshold=0.8):
     return False
 
 # 拖动鼠标操作
-def drag_mouse(start_x, start_y, drag_x, drag_y, duration=0.6):
+def drag_mouse(start_x, start_y, drag_x, drag_y, duration=0.5):
     pyautogui.moveTo(start_x, start_y)
     pyautogui.mouseDown()
     pyautogui.move(drag_x, drag_y, duration=duration)  # 按住左键并拖动，duration 参数控制滑动速度
@@ -53,7 +55,7 @@ def move_to_setting(setting_image_path):
     else:
         print("Setting button not found.")
 
-# 检测并处理 Setting 图标操作
+# 检测并处理 Setting 图标操作(已弃用)
 def handle_setting_and_drag(setting_image_path):
     x_locate = -680
     for i in range(3):  # 重复3次拖动操作
@@ -81,7 +83,7 @@ def handle_setting_and_drag(setting_image_path):
     
     
 
-def find_all_template_positions(template_path, threshold=0.8, min_dist=20):
+def find_all_template_positions(template_path, threshold, min_dist):
     screenshot = take_screenshot()
     img_gray = cv2.cvtColor(screenshot, cv2.COLOR_BGR2GRAY)
     template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
@@ -97,10 +99,94 @@ def find_all_template_positions(template_path, threshold=0.8, min_dist=20):
 #遍历拖拽
 def traversal_drag(units, target_x, target_y):
     for ux, uy in units:
-        print(f"drag unit({ux},{uy})to Enemy HQ({target_x},{target_y})")
-        drag_mouse(ux, uy, target_x-ux, target_y-uy, duration=0.5)
-        time.sleep(0.5)
+        print(f"drag unit({ux},{uy})to target({target_x},{target_y})")
+        if detect_button(continue_image_path):
+            break
+        drag_mouse(ux, uy, target_x-ux, target_y-uy, duration=0.2)
+        time.sleep(0.2)
 
+#对比颜色相似度
+def color_similar(c1, c2, threshold=50):
+    # c1, c2: (B, G, R)
+    return np.linalg.norm(np.array(c1) - np.array(c2)) < threshold
+
+#拖拽可用手牌
+def drag_available_kards_from_hand(k_image_path):
+    template_color = cv2.imread(k_image_path, cv2.IMREAD_COLOR)
+    h, w = template_color.shape[:2]
+    main_color = np.array([56, 148, 208])  # K黄色 (BGR)
+    try_times = 0
+    x_offset = 0
+    while True:
+        if try_times == 8:
+            break
+        filtered = find_all_template_positions(k_image_path, threshold=0.85, min_dist=40)
+        screenshot = take_screenshot()
+        found = False
+        for (x, y) in filtered:
+            left_y = y + h // 2
+            if 0 <= left_y < screenshot.shape[0]:
+                # 遍历 x-10 到 x-5 之间的像素
+                for left_x in range(x - 10, x - 4):
+                    if left_x >= 0:
+                        left_color = screenshot[left_y, left_x]
+                        if color_similar(left_color, main_color):
+                            print(f"dragging available kard at ({x},{y})")
+                            drag_mouse(x, y, x_offset-30, -120, duration=0.2)
+                            if (try_times%2) == 0:
+                                x_offset += 150
+                            else:
+                                x_offset -= 180
+                            time.sleep(1)
+                            found = True
+                            break
+                if found:
+                    try_times += 1
+                    break  # 拖拽一张后立刻重新识别
+
+        if not found:
+            print("all kards not available")
+            break
+
+
+#尝试拖拽支援阵线的坦克和步兵到前线
+def drag_supportline_unit_to_frontline(tank_image_path, infantry_image_path, setting_image_path):
+    move_to_setting(setting_image_path)
+    time.sleep(2)
+
+    setting_loc = detect_button(setting_image_path, threshold=0.8)
+    if setting_loc is None:
+        print("Setting do not find")
+        return
+    
+    setting_x, setting_y = setting_loc
+    target_x = setting_x - 550
+    target_y = setting_y + 300
+    for i in range(2):
+        flitered_infantry = find_all_template_positions(infantry_image_path, threshold=0.8, min_dist=40)
+        if not flitered_infantry:
+            print("do not find infantry in support line")
+        else:
+            infantry_sorted = sorted(
+                [p for p in flitered_infantry if setting_y+500 <= p[1] <= setting_y+580],
+                key=lambda p: p[0]
+            )
+            traversal_drag(infantry_sorted, target_x, target_y)
+            time.sleep(0.5)
+
+    move_to_setting(setting_image_path)
+    time.sleep(1)
+    flitered_tank = find_all_template_positions(tank_image_path, threshold=0.8, min_dist=40)
+    if not flitered_tank:
+        print("do not find tank in support line")
+    else:
+        tank_sorted = sorted(
+            [p for p in flitered_tank if setting_y+500 <= p[1] <= setting_y+580],
+            key=lambda p: p[0]
+        )
+        traversal_drag(tank_sorted, target_x, target_y)
+
+    
 # 拖拽所有unit到敌方HQ
 def drag_all_units_to_enemy_HQ(unit_image_path, HQ_image_path,setting_image_path,veteran_image_path):
     move_to_setting(setting_image_path)
@@ -141,36 +227,61 @@ def do_chat(chat_image_path): #随机发送消息
             print("next time")
     else:
         print("not find chat button")
-            
-        
-    
+
+#记录胜负功能       
+def init_record(path="record.txt"):
+    if not os.path.exists(path):
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("0 win\n")
+            f.write("0 lose\n")
+            f.write("0 unknow\n")
+
+def read_record(path="record.txt"):
+    record = {}
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            num, label = line.strip().split()
+            record[label] = int(num)
+    return record
+
+def update_record(label, delta, path="record.txt"):
+    record = read_record(path)
+    if label in record:
+        record[label] += delta
+    with open(path, "w", encoding="utf-8") as f:
+        for key, value in record.items():
+            f.write(f"{value} {key}\n")
+
+#路径定义
+current_dir = os.path.dirname(os.path.abspath(__file__))
+continue_image_path = os.path.join(current_dir, 'continue.png')  # Continue 按钮路径
+start_image_path = os.path.join(current_dir, 'start.png')  
+confirm_image_path = os.path.join(current_dir, 'confirm.png')  
+endturn_image_path = os.path.join(current_dir, 'endturn.png')
+endturn2_image_path = os.path.join(current_dir, 'endturn2.png') 
+setting_image_path = os.path.join(current_dir, 'setting.png')  # Setting 图标路径
+surrender_image_path = os.path.join(current_dir, 'surrender.png')
+No_image_path = os.path.join(current_dir, 'No.png')
+chat_image_path = os.path.join(current_dir, 'chat.png')
+HQ_image_path = os.path.join(current_dir, 'HQ.png')
+unit_image_path = os.path.join(current_dir, 'unit.png')
+unit_image_path = os.path.join(current_dir, 'unit.png')
+HQ_image_path = os.path.join(current_dir, 'HQ.png')
+veteran_image_path = os.path.join(current_dir, 'veteran.png')
+k_image_path = os.path.join(current_dir, 'k.png')
+infantry_image_path = os.path.join(current_dir, 'infantry.png')
+tank_image_path = os.path.join(current_dir, 'tank.png')
+defeated_image_path = os.path.join(current_dir, 'defeated.png')
+victory_image_path = os.path.join(current_dir, 'victory.png')
 # 主程序
 def main():
-    current_dir = os.path.dirname(os.path.abspath(__file__))  
-    start_image_path = os.path.join(current_dir, 'start.png')  
-    confirm_image_path = os.path.join(current_dir, 'confirm.png')  
-    endturn_image_path = os.path.join(current_dir, 'endturn.png')
-    endturn2_image_path = os.path.join(current_dir, 'endturn2.png') 
-    setting_image_path = os.path.join(current_dir, 'setting.png')  # Setting 图标路径
-    continue_image_path = os.path.join(current_dir, 'continue.png')  # Continue 按钮路径
-    surrender_image_path = os.path.join(current_dir, 'surrender.png')
-    No_image_path = os.path.join(current_dir, 'No.png')
-    chat_image_path = os.path.join(current_dir, 'chat.png')
-    HQ_image_path = os.path.join(current_dir, 'HQ.png')
-    unit_image_path = os.path.join(current_dir, 'unit.png')
-    unit_image_path = os.path.join(current_dir, 'unit.png')
-    HQ_image_path = os.path.join(current_dir, 'HQ.png')
-    veteran_image_path = os.path.join(current_dir, 'veteran.png')
-
-
-
     pyautogui.click()
     time.sleep(2)
     pyautogui.click()
     pyautogui.click()
     time.sleep(2)
     pyautogui.click()
-
+    init_record(path="record.txt")
     # 检测并点击 Start 按钮
     #detect_and_click_button(No_image_path)
     #detect_and_click_button(start_image_path)
@@ -193,10 +304,10 @@ def main():
     # 进入4分钟倒计时
     if random.choice([True,False]):
         print("will surrender this time")
-        countdown_time = 4 * 62  # 4分钟
+        countdown_time = 60 * 9 # 9分钟
     else:
         print("will not surrender")
-        countdown_time = 360
+        countdown_time = 900 #15分钟
     start_time = time.time()
 
     while time.time() - start_time < countdown_time:
@@ -209,6 +320,12 @@ def main():
 
         if continue_pos:
             while True:
+                if detect_button(victory_image_path):
+                    update_record("win", 1)
+                elif detect_button(defeated_image_path):
+                    update_record("lose", 1)
+                else:
+                    update_record("unknow", 1) 
                 if detect_and_click_button(continue_image_path):
                     time.sleep(3)
                     detect_and_click_button(continue_image_path)
@@ -219,6 +336,7 @@ def main():
                     time.sleep(3)
                     detect_and_click_button(continue_image_path)
                     time.sleep(3)
+                    read_record()
                     pyautogui.move(-550, 0)
                     break
 
@@ -231,14 +349,21 @@ def main():
             do_chat(chat_image_path)
             
             # 检测setting按钮并执行操作
-            handle_setting_and_drag(setting_image_path)
+            #handle_setting_and_drag(setting_image_path)
+            # 拖拽可用手牌
+            drag_available_kards_from_hand(k_image_path)
+            # 拖拽支援阵线坦克和步兵
+            drag_supportline_unit_to_frontline(tank_image_path, infantry_image_path, setting_image_path)
             # 将所有单位拖向敌方总部
             drag_all_units_to_enemy_HQ(unit_image_path, HQ_image_path,setting_image_path,veteran_image_path)
 
             # 等待5-20秒后点击endturn按钮
-            time_random = random.randint(5,20)
+            if countdown_time == 900:
+                time_random = 1
+            else:
+                time_random = random.randint(1,2)# 如有需要可以设置为等待5-20秒
             print("Waiting %d seconds before clicking Endturn..." % time_random)
-            time.sleep(time_random)  # 等待5-20秒
+            time.sleep(time_random)  
 
             # 点击endturn按钮
             detect_and_click_button(endturn_image_path)
@@ -249,9 +374,11 @@ def main():
     detect_and_click_button(setting_image_path)
     time.sleep(2)  # 等待2秒
     detect_and_click_button(surrender_image_path)
+    update_record("lose", 1)
     pyautogui.move(-580, 0)
     time.sleep(6)  # 等待10秒
     while True:
+
         if detect_and_click_button(continue_image_path):
             time.sleep(3)
             detect_and_click_button(continue_image_path)
@@ -262,6 +389,7 @@ def main():
             time.sleep(3)
             detect_and_click_button(continue_image_path)
             time.sleep(3)
+            read_record()
             pyautogui.move(-550, 0)
             break
 if __name__ == '__main__':
