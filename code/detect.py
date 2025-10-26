@@ -29,7 +29,7 @@ def detect_button(image_path, threshold=0.8):
     return None
 
 # 检测按钮并移动鼠标点击
-def detect_and_click_button(image_path, threshold=0.8):
+def detect_and_click_button(image_path, threshold=0.9):
     button_pos = detect_button(image_path, threshold)
     if button_pos:
         pyautogui.moveTo(button_pos[0], button_pos[1])
@@ -55,13 +55,18 @@ def drag_mouse(start_x, start_y, drag_x, drag_y, duration=0.5):
     pyautogui.mouseUp()
 
 def main():
-    current_dir = os.path.dirname(os.path.abspath(__file__)) 
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    parent_dir = os.path.dirname(current_dir)                  # 上一级目录
+    icon_dir = os.path.join(parent_dir, "icon")
     continue_image_path = os.path.join(current_dir, 'continue.png')
     k_image_path = os.path.join(current_dir, 'k.png')
     setting_image_path = os.path.join(current_dir, 'setting.png')
+    HQ_image_path = os.path.join(current_dir, 'HQ.png')
+    be_guard_image_path = os.path.join(icon_dir, 'be_guard.png')
+    guard_image_path = os.path.join(icon_dir, 'guard.png')
 
-    move_to_setting(setting_image_path)
-    pyautogui.move(0, 520)
+    move_to_setting(HQ_image_path)
+    pyautogui.move(0, 0)
 
 
 

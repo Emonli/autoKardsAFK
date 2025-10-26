@@ -47,7 +47,7 @@ def drag_mouse(start_x, start_y, drag_x, drag_y, duration=0.5):
     pyautogui.mouseUp()
 
 def move_to_setting(setting_image_path):
-    button_pos = detect_button(setting_image_path)
+    button_pos = detect_button(setting_image_path,threshold=0.7)
     if button_pos:
         center_x, center_y = button_pos
         # 移动鼠标至 setting 图标中央
@@ -111,7 +111,7 @@ def color_similar(c1, c2, threshold=50):
     return np.linalg.norm(np.array(c1) - np.array(c2)) < threshold
 
 #拖拽可用手牌
-def drag_available_kards_from_hand(k_image_path):
+def drag_available_kards_from_hand():
     template_color = cv2.imread(k_image_path, cv2.IMREAD_COLOR)
     h, w = template_color.shape[:2]
     main_color = np.array([56, 148, 208])  # K黄色 (BGR)
@@ -150,7 +150,7 @@ def drag_available_kards_from_hand(k_image_path):
 
 
 #尝试拖拽支援阵线的坦克和步兵到前线
-def drag_supportline_unit_to_frontline(tank_image_path, infantry_image_path, setting_image_path):
+def drag_supportline_unit_to_frontline():
     move_to_setting(setting_image_path)
     time.sleep(2)
 
@@ -188,12 +188,15 @@ def drag_supportline_unit_to_frontline(tank_image_path, infantry_image_path, set
 
     
 # 拖拽所有unit到敌方HQ
-def drag_all_units_to_enemy_HQ(unit_image_path, HQ_image_path,setting_image_path,veteran_image_path):
+def drag_all_units_to_enemy_HQ():
     move_to_setting(setting_image_path)
     time.sleep(1)
     units = find_all_template_positions(unit_image_path, threshold=0.92, min_dist=30)
     veteran_units = find_all_template_positions(veteran_image_path, threshold=0.9, min_dist=50)
-    HQs = find_all_template_positions(HQ_image_path, threshold=0.8, min_dist=200)
+    gold_units = find_all_template_positions(gold_unit_image_path, threshold=0.8, min_dist=50)
+    HQs = find_all_template_positions(HQ_image_path, threshold=0.7, min_dist=200)
+    be_guards = find_all_template_positions(be_guard_image_path, threshold=0.9, min_dist=50)
+    guards = find_all_template_positions(guard_image_path, threshold=0.9, min_dist=50)
     if len(HQs) < 2 or not units:
         print("do not find HQ or unit")
         return
@@ -206,8 +209,31 @@ def drag_all_units_to_enemy_HQ(unit_image_path, HQ_image_path,setting_image_path
     #单位坐标偏移,并依次托向总部
     units = [(ux + 25, uy - 50) for ux, uy in units]
     veteran_units = [(ux - 55, uy + 50) for ux, uy in veteran_units]
-    traversal_drag(units, target_x, target_y)
-    traversal_drag(veteran_units, target_x, target_y)
+    gold_units = [(ux + 25, uy - 50) for ux, uy in gold_units]
+
+    #剔除敌方单位
+    cutoff_Y = enemy_HQ[1] + 100
+    units = [(ux, uy) for ux, uy in units if uy >= cutoff_Y]
+    veteran_units = [(ux, uy) for ux, uy in veteran_units if uy >= cutoff_Y]
+    gold_units = [(ux, uy) for ux, uy in gold_units if uy >= cutoff_Y]
+
+    #检测敌方总部是否被守护
+    print(be_guards)
+    print(guards)
+    print(enemy_HQ)
+    if any((enemy_HQ[0] < ux < enemy_HQ[0]+130) and (uy < enemy_HQ[1]) for ux, uy in be_guards):
+        print("enemy HQ is been guard")
+        guards_pos = [(ux, uy) for ux, uy in guards if (uy < enemy_HQ[1]) and (enemy_HQ[0] - 180 < ux < enemy_HQ[0] + 300)]
+        if guards_pos:
+            guard = min(guards_pos, key=lambda p: p[0])
+            target_x, target_y = guard[0] - 55, guard[1] + 50  # 转成只包含一个元素的列表(x min)
+            traversal_drag(units, target_x, target_y)
+            traversal_drag(veteran_units, target_x, target_y)
+            traversal_drag(gold_units, target_x, target_y) 
+    else:
+        traversal_drag(units, target_x, target_y)
+        traversal_drag(veteran_units, target_x, target_y)
+        traversal_drag(gold_units, target_x, target_y)
 
 
 
@@ -252,8 +278,18 @@ def update_record(label, delta, path="record.txt"):
         for key, value in record.items():
             f.write(f"{value} {key}\n")
 
+def do_continue():
+    for i in range(5):
+        time.sleep(2)
+        if not detect_and_click_button(continue_image_path):
+            detect_and_click_button(receive_image_path)
+        pyautogui.move(-100, 0)
+
 #路径定义
 current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)                  # 上一级目录
+icon_dir = os.path.join(parent_dir, "icon")
+CN_dir = os.path.join(parent_dir, "CN")
 continue_image_path = os.path.join(current_dir, 'continue.png')  # Continue 按钮路径
 start_image_path = os.path.join(current_dir, 'start.png')  
 confirm_image_path = os.path.join(current_dir, 'confirm.png')  
@@ -268,11 +304,15 @@ unit_image_path = os.path.join(current_dir, 'unit.png')
 unit_image_path = os.path.join(current_dir, 'unit.png')
 HQ_image_path = os.path.join(current_dir, 'HQ.png')
 veteran_image_path = os.path.join(current_dir, 'veteran.png')
+gold_unit_image_path = os.path.join(icon_dir, 'gold_unit.png')
 k_image_path = os.path.join(current_dir, 'k.png')
 infantry_image_path = os.path.join(current_dir, 'infantry.png')
 tank_image_path = os.path.join(current_dir, 'tank.png')
 defeated_image_path = os.path.join(current_dir, 'defeated.png')
 victory_image_path = os.path.join(current_dir, 'victory.png')
+guard_image_path = os.path.join(icon_dir, 'guard.png')
+be_guard_image_path = os.path.join(icon_dir, 'be_guard.png')
+receive_image_path = os.path.join(CN_dir, 'receive.png')
 # 主程序
 def main():
     pyautogui.click()
@@ -313,9 +353,9 @@ def main():
     while time.time() - start_time < countdown_time:
         print("Checking for Endturn or Continue button...")
         
-        endturn_pos = detect_button(endturn_image_path)
+        endturn_pos = detect_button(endturn_image_path, threshold=0.7)
         if not endturn_pos: # 如果没找到第一个按钮
-            endturn_pos = detect_button(endturn2_image_path)
+            endturn_pos = detect_button(endturn2_image_path, threshold=0.7)
         continue_pos = detect_button(continue_image_path)
 
         if continue_pos:
@@ -327,17 +367,7 @@ def main():
                 else:
                     update_record("unknow", 1) 
                 if detect_and_click_button(continue_image_path):
-                    time.sleep(3)
-                    detect_and_click_button(continue_image_path)
-                    time.sleep(3)
-                    detect_and_click_button(continue_image_path)
-                    time.sleep(3)
-                    detect_and_click_button(continue_image_path)
-                    time.sleep(3)
-                    detect_and_click_button(continue_image_path)
-                    time.sleep(3)
-                    read_record()
-                    pyautogui.move(-550, 0)
+                    do_continue()
                     break
 
             print("Restarting main process...")
@@ -351,11 +381,11 @@ def main():
             # 检测setting按钮并执行操作
             #handle_setting_and_drag(setting_image_path)
             # 拖拽可用手牌
-            drag_available_kards_from_hand(k_image_path)
+            drag_available_kards_from_hand()
             # 拖拽支援阵线坦克和步兵
-            drag_supportline_unit_to_frontline(tank_image_path, infantry_image_path, setting_image_path)
+            drag_supportline_unit_to_frontline()
             # 将所有单位拖向敌方总部
-            drag_all_units_to_enemy_HQ(unit_image_path, HQ_image_path,setting_image_path,veteran_image_path)
+            drag_all_units_to_enemy_HQ()
 
             # 等待5-20秒后点击endturn按钮
             if countdown_time == 900:
@@ -380,17 +410,7 @@ def main():
     while True:
 
         if detect_and_click_button(continue_image_path):
-            time.sleep(3)
-            detect_and_click_button(continue_image_path)
-            time.sleep(3)
-            detect_and_click_button(continue_image_path)
-            time.sleep(3)
-            detect_and_click_button(continue_image_path)
-            time.sleep(3)
-            detect_and_click_button(continue_image_path)
-            time.sleep(3)
-            read_record()
-            pyautogui.move(-550, 0)
+            do_continue()
             break
 if __name__ == '__main__':
     while True:
